@@ -29,7 +29,6 @@ public class PaymentKafkaConsumer {
     private final DlqRecordRepository dlqRecordRepository;
     private final ObjectMapper objectMapper;
 
-    // Rastreia tentativas em memoria por paymentId para simulacao resiliente
     private final Map<String, Integer> retryTracker = new ConcurrentHashMap<>();
 
     public PaymentKafkaConsumer(PaymentProcessorService processorService,
@@ -43,7 +42,15 @@ public class PaymentKafkaConsumer {
     }
 
     @KafkaListener(topics = KafkaConfig.PAYMENTS_TOPIC, groupId = "payment-engine-group")
-    public void consumePaymentEvent(PaymentEvent event) {
+    public void consumePaymentEvent(String eventJson) {
+        PaymentEvent event;
+        try {
+            event = objectMapper.readValue(eventJson, PaymentEvent.class);
+        } catch (Exception e) {
+            log.error("[KafkaConsumer] Mensagem malformatada recebida no Kafka (descartando/DLQ): {}", eventJson);
+            return;
+        }
+
         log.info("[KafkaConsumer] Recebido evento de pagamento: paymentId={}, amount={}",
                 event.paymentId(), event.amount());
 
@@ -51,7 +58,6 @@ public class PaymentKafkaConsumer {
 
         try {
             processorService.processEvent(event);
-            // Se processou com sucesso, limpa contador
             retryTracker.remove(event.paymentId());
         } catch (GatewayTimeoutException ex) {
             currentAttempt++;
@@ -64,7 +70,6 @@ public class PaymentKafkaConsumer {
                 handleExhaustedRetries(event, ex.getMessage(), currentAttempt);
                 retryTracker.remove(event.paymentId());
             } else {
-                // Simula backoff exponencial simples antes da proxima tentativa
                 try {
                     long backoffMs = (long) Math.pow(2, currentAttempt) * 500;
                     log.info("[KafkaConsumer] Aguardando backoff de {}ms antes de retentar...", backoffMs);
@@ -72,8 +77,7 @@ public class PaymentKafkaConsumer {
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                 }
-                // Retenta reprocessar o mesmo evento
-                consumePaymentEvent(event);
+                consumePaymentEvent(eventJson);
             }
         } catch (Exception ex) {
             log.error("[KafkaConsumer] Erro nao recuperavel no pagamento {}: {}", event.paymentId(), ex.getMessage());
@@ -83,9 +87,8 @@ public class PaymentKafkaConsumer {
     }
 
     @KafkaListener(topics = KafkaConfig.PAYMENTS_DLQ_TOPIC, groupId = "payment-dlq-monitor-group")
-    public void consumeDlqEvent(PaymentDlqEvent dlqEvent) {
-        log.error("[DLQ-MONITOR] ALERTA: Mensagem na Dead Letter Queue! Payment ID: {}, Motivo: {}",
-                dlqEvent.paymentId(), dlqEvent.reason());
+    public void consumeDlqEvent(String dlqJson) {
+        log.error("[DLQ-MONITOR] ALERTA: Mensagem na Dead Letter Queue: {}", dlqJson);
     }
 
     private void handleExhaustedRetries(PaymentEvent event, String reason, int attempts) {
@@ -99,14 +102,11 @@ public class PaymentKafkaConsumer {
             payloadJson = event.toString();
         }
 
-        // 1. Atualiza status no banco para FAILED_SENT_TO_DLQ
         processorService.markAsDlq(event.paymentId(), reason);
 
-        // 2. Persiste registro de auditoria da DLQ
         DlqRecord dlqRecord = new DlqRecord(event.paymentId(), reason, payloadJson, attempts);
         dlqRecordRepository.save(dlqRecord);
 
-        // 3. Publica evento no topico payments.dlq
         PaymentDlqEvent dlqEvent = new PaymentDlqEvent(
                 event.paymentId(),
                 event.idempotencyKey(),

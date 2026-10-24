@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # PostgreSQL para persistencia de pagamentos e controle de idempotencia
+  postgres:
+    image: postgres:16-alpine
+    container_name: payment_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: payments_db
+      POSTGRES_USER: payment_user
+      POSTGRES_PASSWORD: payment_pass_local
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payment_user -d payments_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 120M
+
+  # Redpanda: Mensageria 100% compativel com Kafka mas ultra-leve (~150MB de RAM)
+  kafka:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.1
+    container_name: payment_kafka
+    restart: unless-stopped
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 160M
+      - --reserve-memory 0M
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://kafka:29092,OUTSIDE://localhost:9092
+    ports:
+      - "9092:9092"
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+
+  # Motor de Pagamentos Java 21 / Spring Boot
+  payment-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: payment_engine
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/payments_db
+      SPRING_DATASOURCE_USERNAME: payment_user
+      SPRING_DATASOURCE_PASSWORD: payment_pass_local
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      JAVA_TOOL_OPTIONS: "-Xms128m -Xmx256m -XX:+UseG1GC"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 380M
+
+volumes:
+  pgdata:

@@ -1,0 +1,28 @@
+# Compilacao e Maven
+target/
+*.class
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Logs
+*.log
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# Sistema Operacional
+.DS_Store
+Thumbs.db
+
+# Variaveis de ambiente com credenciais reais
+.env

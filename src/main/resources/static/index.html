@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Engine — Event-Driven Dashboard & Simulator</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-bright: #f0f6fc;
+      --accent-blue: #58a6ff;
+      --green: #2ea043;
+      --red: #f85149;
+      --yellow: #d29922;
+      --purple: #bc8cff;
+      --orange: #f0883e;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding: 24px;
+      line-height: 1.5;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 24px;
+    }
+
+    h1 { font-size: 22px; color: var(--text-bright); font-weight: 600; }
+    .subtitle { font-size: 13px; color: #8b949e; margin-top: 4px; }
+
+    .header-links a {
+      color: var(--accent-blue);
+      text-decoration: none;
+      font-size: 13px;
+      margin-left: 16px;
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 6px;
+      transition: background 0.2s;
+    }
+    .header-links a:hover { background-color: var(--border); }
+
+    /* KPI Cards */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .kpi-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .kpi-title { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+    .kpi-value { font-size: 26px; font-weight: 700; color: var(--text-bright); margin-top: 8px; }
+
+    /* Generator Section */
+    .section-title {
+      font-size: 16px;
+      color: var(--text-bright);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .generator-panel {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 28px;
+    }
+
+    .button-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #ffffff;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    button:active { transform: scale(0.98); }
+    button:hover { opacity: 0.9; }
+
+    .btn-green { background-color: var(--green); }
+    .btn-yellow { background-color: var(--yellow); color: #000; }
+    .btn-red { background-color: var(--red); }
+    .btn-orange { background-color: var(--orange); }
+    .btn-purple { background-color: var(--purple); color: #000; }
+    .btn-blue { background-color: var(--accent-blue); color: #000; }
+    .btn-refresh { background-color: #21262d; border: 1px solid var(--border); color: var(--text); }
+
+    /* Feedback Terminal */
+    .terminal-output {
+      background-color: #000;
+      color: #7ee787;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 12px;
+      padding: 12px;
+      border-radius: 6px;
+      margin-top: 16px;
+      max-height: 140px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+    }
+
+    /* Table */
+    .table-container {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow-x: auto;
+      margin-bottom: 28px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      background-color: #21262d;
+      color: #8b949e;
+      font-weight: 600;
+    }
+    tr:last-child td { border-bottom: none; }
+
+    /* Badges */
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-approved { background-color: rgba(46, 160, 67, 0.2); color: #3fb950; border: 1px solid #2ea043; }
+    .badge-processing { background-color: rgba(210, 153, 34, 0.2); color: #d29922; border: 1px solid #bb8009; }
+    .badge-rejected { background-color: rgba(248, 81, 73, 0.2); color: #f85149; border: 1px solid #f85149; }
+    .badge-dlq { background-color: rgba(188, 140, 255, 0.2); color: #bc8cff; border: 1px solid #bc8cff; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div>
+      <h1>Event-Driven Payment Engine</h1>
+      <div class="subtitle">Processador de Pagamentos Assíncrono | Java 21, Kafka, PostgreSQL & DLQ</div>
+    </div>
+    <div class="header-links">
+      <a href="/swagger-ui.html" target="_blank">Swagger API Docs</a>
+      <a href="/actuator/health" target="_blank">Healthcheck</a>
+    </div>
+  </header>
+
+  <!-- KPI Metrics -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-title">Total de Pagamentos</div>
+      <div class="kpi-value" id="kpi-total">0</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Aprovados</div>
+      <div class="kpi-value" style="color: #3fb950;" id="kpi-approved">0</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Rejeitados (Risco / Saldo)</div>
+      <div class="kpi-value" style="color: #f85149;" id="kpi-rejected">0</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Dead Letter Queue (DLQ)</div>
+      <div class="kpi-value" style="color: #bc8cff;" id="kpi-dlq">0</div>
+    </div>
+  </div>
+
+  <!-- Generator Panel -->
+  <div class="generator-panel">
+    <div class="section-title">Gerador de Massa de Testes (Simulação em 1 Clique)</div>
+    <p style="font-size: 13px; color: #8b949e;">Selecione um cenário para disparar requisições para a API e acompanhar a mensageria e regras de negócio em ação:</p>
+    
+    <div class="button-group">
+      <button class="btn-green" onclick="runScenario('approve')">Transação Aprovada (R$ 189,90)</button>
+      <button class="btn-yellow" onclick="runScenario('idempotent-repeat')">Testar Idempotência (Dupla Requisição)</button>
+      <button class="btn-red" onclick="runScenario('antifraud')">Testar Antifraude (&gt; R$ 5.000)</button>
+      <button class="btn-orange" onclick="runScenario('insufficient-funds')">Testar Saldo Insuficiente (R$ 404,00)</button>
+      <button class="btn-purple" onclick="runScenario('timeout-dlq')">Testar Falha &amp; DLQ (3 Retries com Backoff)</button>
+      <button class="btn-blue" onclick="runBurst(10)">Rajada Concorrente (10 Transações Kafka)</button>
+      <button class="btn-refresh" onclick="fetchPayments()">Atualizar Tabela</button>
+    </div>
+
+    <div class="terminal-output" id="console-output">
+      [READY] Sistema operacional. Clique em qualquer um dos botões acima para executar testes na API.
+    </div>
+  </div>
+
+  <!-- Payments Table -->
+  <div class="section-title">Transações Processadas em Tempo Real</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Cliente</th>
+          <th>Valor</th>
+          <th>Método</th>
+          <th>Cartão</th>
+          <th>Status</th>
+          <th>Motivo / Resolução</th>
+          <th>Data/Hora</th>
+        </tr>
+      </thead>
+      <tbody id="payments-tbody">
+        <tr>
+          <td colspan="8" style="text-align: center; color: #8b949e; padding: 24px;">Nenhuma transação registrada. Use o painel acima para gerar dados de teste.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    const logConsole = document.getElementById("console-output");
+
+    function log(msg) {
+      const time = new Date().toLocaleTimeString();
+      logConsole.innerHTML = `[${time}] ${msg}\n` + logConsole.innerHTML;
+    }
+
+    async function runScenario(scenario) {
+      log(`Disparando cenário: '${scenario}'...`);
+      try {
+        const res = await fetch(`/api/v1/payments/simulate/preset/${scenario}`, { method: 'POST' });
+        const data = await res.json();
+        log(`Resposta recebida (HTTP ${res.status}): ${JSON.stringify(data)}`);
+        setTimeout(fetchPayments, 800);
+      } catch (err) {
+        log(`ERRO: ${err.message}`);
+      }
+    }
+
+    async function runBurst(count) {
+      log(`Disparando rajada concorrente de ${count} transações no Kafka...`);
+      try {
+        const res = await fetch(`/api/v1/payments/simulate/burst/${count}`, { method: 'POST' });
+        const data = await res.json();
+        log(`Rajada concluída! ${data.totalDispatched} mensagens enfileiradas no Kafka.`);
+        setTimeout(fetchPayments, 1200);
+      } catch (err) {
+        log(`ERRO: ${err.message}`);
+      }
+    }
+
+    async function fetchPayments() {
+      try {
+        const res = await fetch('/api/v1/payments');
+        if (!res.ok) return;
+        const payments = await res.json();
+
+        const dlqRes = await fetch('/api/v1/payments/dlq');
+        const dlqs = dlqRes.ok ? await dlqRes.json() : [];
+
+        // Update KPIs
+        document.getElementById("kpi-total").innerText = payments.length;
+        document.getElementById("kpi-approved").innerText = payments.filter(p => p.status === 'APPROVED').length;
+        document.getElementById("kpi-rejected").innerText = payments.filter(p => p.status.startsWith('REJECTED')).length;
+        document.getElementById("kpi-dlq").innerText = dlqs.length;
+
+        const tbody = document.getElementById("payments-tbody");
+        if (payments.length === 0) return;
+
+        tbody.innerHTML = payments.reverse().map(p => {
+          let badgeClass = 'badge-processing';
+          if (p.status === 'APPROVED') badgeClass = 'badge-approved';
+          else if (p.status.startsWith('REJECTED')) badgeClass = 'badge-rejected';
+          else if (p.status.includes('DLQ')) badgeClass = 'badge-dlq';
+
+          return `
+            <tr>
+              <td><code>${p.id}</code></td>
+              <td>${p.customerId}</td>
+              <td><strong>${p.currency} ${Number(p.amount).toFixed(2)}</strong></td>
+              <td>${p.paymentMethod}</td>
+              <td><code>${p.maskedCard || 'N/A'}</code></td>
+              <td><span class="badge ${badgeClass}">${p.status}</span></td>
+              <td style="color: #8b949e;">${p.statusReason || 'Em processamento pela fila...'}</td>
+              <td>${new Date(p.createdAt).toLocaleTimeString()}</td>
+            </tr>
+          `;
+        }).join("");
+
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // Auto-refresh a cada 4 segundos
+    setInterval(fetchPayments, 4000);
+    fetchPayments();
+  </script>
+</body>
+</html>
